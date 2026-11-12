@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "solar-hc"
+version = "0.1.0"
+description = "Reproducible SMART-DS snapshot hosting-capacity dataset curation"
+requires-python = ">=3.10"
+dependencies = [
+  "OpenDSSDirect.py>=0.9.4,<0.10",
+  "numpy>=1.24,<3",
+  "networkx>=3.2,<4",
+  "torch>=2.2,<3",
+  "torch-geometric>=2.5,<3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10"]
+
+[project.scripts]
+solar-hc = "solar_hc.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

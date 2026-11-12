@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Feeder graph explorer</title>
+  <style>
+    :root {
+      color-scheme:light dark;
+      --font-size-base:14px;
+      --background:light-dark(#ffffff,#181b22);
+      --foreground:light-dark(#1d2636,#e9edf4);
+      --muted:light-dark(#e8ecf1,#343d4c);
+      --muted-foreground:light-dark(#536173,#b6c1cf);
+      --viz-series-1:light-dark(#215ee3,#81adff);
+      --viz-series-2:light-dark(#087858,#70d5ac);
+      --viz-series-3:light-dark(#a85708,#f2b365);
+      --viz-series-4:light-dark(#8544bd,#ca9aed);
+    }
+    * { box-sizing:border-box; }
+    body { margin:0; padding:24px; font:14px/1.5 system-ui,sans-serif; background:var(--background); color:var(--foreground); }
+    main { max-width:1100px; margin:auto; }
+    h2,h3,p { margin:0; }
+    h2 { font-size:22px; font-weight:600; }
+    h3 { font-size:16px; font-weight:600; }
+    .text-small { font-size:12px; }
+    .text-muted { color:var(--muted-foreground); }
+    .tabular-nums { font-variant-numeric:tabular-nums; }
+    .viz-controls { display:flex; flex-wrap:wrap; gap:16px; }
+    .form-label { display:grid; gap:4px; max-width:100%; }
+    .form-select { font:inherit; max-width:100%; padding:8px; color:var(--foreground); background:var(--background); border:1px solid var(--muted-foreground); border-radius:5px; }
+    .cursor-interaction { cursor:pointer; }
+    .help { margin-top:24px; padding-top:16px; border-top:1px solid var(--muted); }
+    .help p + p { margin-top:8px; }
+    @media(max-width:600px) { body { padding:12px; } .form-label { width:100%; } .form-select { width:100%; font-size:16px; } }
+  </style>
+</head>
+<body>
+<main>
+<div id="sfo-feeder-explorer">
+  <style>
+    #sfo-feeder-explorer { color:var(--foreground); display:grid; gap:calc(var(--font-size-base)*1); }
+    #sfo-feeder-explorer .plot { width:100%; display:block; overflow:visible; }
+    #sfo-feeder-explorer .legend { display:flex; flex-wrap:wrap; gap:calc(var(--font-size-base)*.8); }
+    #sfo-feeder-explorer .legend span { display:inline-flex; align-items:center; gap:calc(var(--font-size-base)*.35); }
+    #sfo-feeder-explorer .mark { display:inline-block; width:10px; height:10px; }
+    #sfo-feeder-explorer .root-mark { background:var(--viz-series-1); transform:rotate(45deg); }
+    #sfo-feeder-explorer .load-mark { background:var(--viz-series-2); border-radius:50%; }
+    #sfo-feeder-explorer .terminal-mark { background:color-mix(in srgb,var(--viz-series-3) 60%,var(--background)); }
+    #sfo-feeder-explorer .junction-mark { background:var(--muted-foreground); border-radius:50%; }
+    #sfo-feeder-explorer .transformer-mark { background:var(--viz-series-3); }
+    #sfo-feeder-explorer .switch-mark { background:var(--viz-series-4); transform:rotate(45deg); }
+    #sfo-feeder-explorer .detail { overflow-wrap:anywhere; }
+    #sfo-feeder-explorer .route-labels { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:calc(var(--font-size-base)*.4); }
+    #sfo-feeder-explorer .route-labels div { overflow-wrap:anywhere; }
+    #sfo-feeder-explorer .selected-caption { display:grid; gap:calc(var(--font-size-base)*.4); }
+    #sfo-feeder-explorer .node { stroke:var(--foreground); stroke-width:.7; }
+    #sfo-feeder-explorer .selected-node { stroke:var(--foreground); stroke-width:2.5; }
+    #sfo-feeder-explorer .edge { fill:none; stroke:color-mix(in srgb,var(--foreground) 24%,var(--background)); stroke-width:1.2; }
+    #sfo-feeder-explorer .route-edge { fill:none; stroke:var(--viz-series-1); stroke-width:2; }
+    #sfo-feeder-explorer text { fill:var(--foreground); }
+    #sfo-hover {
+      position:fixed; z-index:1000; pointer-events:none;
+      width:max-content; max-width:calc(100vw - 24px); padding:12px 14px;
+      background:var(--background); color:var(--foreground);
+      border:1px solid var(--muted-foreground); border-radius:8px;
+      box-shadow:0 4px 18px color-mix(in srgb,var(--foreground) 15%,transparent);
+      overflow-wrap:anywhere;
+    }
+    #sfo-hover dl { margin:8px 0 0; display:grid; gap:4px; }
+    #sfo-hover dl div { display:flex; flex-wrap:wrap; justify-content:space-between; gap:4px 20px; }
+    #sfo-hover dt { color:var(--muted-foreground); }
+    #sfo-hover dd { margin:0; font-variant-numeric:tabular-nums; }
+  </style>
+  <div>
+    <h2 id="sfo-heading">Feeder explorer</h2>
+    <div id="sfo-summary" class="text-small text-muted"></div>
+  </div>
+  <div class="viz-controls">
+    <label class="form-label">Color by
+      <select id="sfo-mode" class="form-select">
+        <option value="role">Node role</option>
+        <option value="voltage">Voltage level</option>
+        <option value="capacity">Solar hosting capacity</option>
+        <option value="pv">Existing PV output</option>
+      </select>
+    </label>
+    <label class="form-label">Inspect connection
+      <select id="sfo-node" class="form-select" aria-label="Inspect a feeder bus"></select>
+    </label>
+  </div>
+  <div id="sfo-legend" class="legend text-small"></div>
+  <svg id="sfo-tree" class="plot" role="img" aria-label="Actual feeder tree with 84 buses, rooted at the feeder head. Highlighted edges connect the selected bus to the source."></svg>
+  <div class="legend text-small">
+    <span><i class="mark transformer-mark" aria-hidden="true"></i><b id="sfo-transformer-count"></b> transformer edges</span>
+    <span><i class="mark switch-mark" aria-hidden="true"></i><b id="sfo-switch-count"></b> switch edges</span>
+    <span><b id="sfo-line-count"></b> line edges</span>
+    <span>Highlighted route → selected bus</span>
+  </div>
+  <div class="selected-caption" aria-live="polite">
+    <h3 id="sfo-selected-name"></h3>
+    <div id="sfo-selected-detail" class="detail text-small"></div>
+  </div>
+  <div id="sfo-customer-route">
+    <h3>Selected customer's electrical connection</h3>
+    <svg id="sfo-route" class="plot" role="img" aria-label="Selected customer route, with intermediate wire connections collapsed, showing the transformer voltage change."></svg>
+    <div id="sfo-route-labels" class="route-labels text-small"></div>
+    <div id="sfo-limit" class="text-small detail" aria-live="polite"></div>
+  </div>
+  <div id="sfo-hover" role="tooltip" hidden>
+    <strong id="sfo-hover-name"></strong>
+    <dl class="text-small">
+      <div><dt>Node type</dt><dd id="sfo-hover-role"></dd></div>
+      <div><dt>Nominal voltage to neutral</dt><dd id="sfo-hover-voltage"></dd></div>
+      <div><dt>Local demand</dt><dd id="sfo-hover-demand"></dd></div>
+      <div><dt>Existing PV output</dt><dd id="sfo-hover-pv"></dd></div>
+      <div><dt>Baseline voltage</dt><dd id="sfo-hover-baseline"></dd></div>
+      <div><dt>Solar hosting capacity</dt><dd id="sfo-hover-hc"></dd></div>
+    </dl>
+  </div>
+  <script type="application/json" id="sfo-data">__FEEDER_DATA__</script>
+  <script>
+  (() => {
+    const root=document.getElementById('sfo-feeder-explorer');
+    const q=id=>root.querySelector('#'+id);
+    const data=JSON.parse(q('sfo-data').textContent);
+    q('sfo-heading').textContent=data.feeder+' · '+data.nodes.length+' buses';
+    q('sfo-summary').textContent=data.edges.length+' components · '+(data.roles.customer||0)+' customer buses · topology, not geographic distance';
+    q('sfo-transformer-count').textContent=data.components.transformer||0;
+    q('sfo-switch-count').textContent=data.components.switch||0;
+    q('sfo-line-count').textContent=data.components.line||0;
+    const byId=new Map(data.nodes.map(n=>[n.name,n]));
+    const childEdges=new Map(data.edges.map(e=>[e.child,e]));
+    const children=new Map(data.nodes.map(n=>[n.name,[]]));
+    data.nodes.forEach(n=>{if(n.parent)children.get(n.parent).push(n.name);});
+    const source=data.nodes.find(n=>n.role==='root');
+    const optionName=n=>n.name+(n.hc!==null?' · '+n.hc.toFixed(1)+' kW HC':' · '+n.role);
+    q('sfo-node').innerHTML=data.nodes.map(n=>`<option value="${n.name}">${optionName(n)}</option>`).join('');
+    const labeled=data.nodes.filter(n=>n.hc!==null).sort((a,b)=>a.hc-b.hc);
+    let selected=(labeled[0]||source).name,mode='role';
+    const escape=s=>String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;');
+    function restore(state){
+      const saved=state?.modelContent;
+      if(saved && byId.has(saved.bus))selected=saved.bus;
+      if(saved && ['role','voltage','capacity','pv'].includes(saved.colorBy))mode=saved.colorBy;
+    }
+    try { restore(JSON.parse(localStorage.getItem('feeder-view:'+data.feeder)||'null')); } catch (_) {}
+    function persist(){try {localStorage.setItem('feeder-view:'+data.feeder,JSON.stringify({modelContent:{bus:selected,colorBy:mode}}));}catch (_) {}}
+    function roleColor(n){return n.role==='root'?'var(--viz-series-1)':n.role==='customer'?'var(--viz-series-2)':n.role==='transformer terminal'?'var(--viz-series-3)':'var(--muted-foreground)';}
+    function color(n){
+      if(mode==='role')return roleColor(n);
+      if(mode==='voltage')return n.kv>1?'var(--viz-series-1)':n.kv>.2?'var(--viz-series-2)':'var(--viz-series-3)';
+      if(mode==='pv')return n.pv_kw>0?`color-mix(in srgb,var(--viz-series-2) ${25+75*Math.sqrt(n.pv_kw/(data.maxPV||1))}%,var(--background))`:'var(--muted)';
+      if(n.hc===null)return 'var(--muted)';
+      return `color-mix(in srgb,var(--viz-series-1) ${25+75*Math.sqrt(n.hc/(data.maxHC||1))}%,var(--background))`;
+    }
+    function nodeShape(n,x,y,r,extra=''){
+      const cls='node '+(n.name===selected?'selected-node ':'')+extra;
+      const attrs=`class="${cls}" fill="${color(n)}" data-node="${escape(n.name)}" aria-label="${escape(optionName(n))}"`;
+      if(n.role==='root')return `<polygon ${attrs} points="${x},${y-r-2} ${x+r+2},${y} ${x},${y+r+2} ${x-r-2},${y}"/>`;
+      if(n.role==='transformer terminal')return `<rect ${attrs} x="${x-r}" y="${y-r}" width="${2*r}" height="${2*r}"/>`;
+      return `<circle ${attrs} cx="${x}" cy="${y}" r="${r}"/>`;
+    }
+    let hovered=null;
+    function hidePopup(){q('sfo-hover').hidden=true;hovered=null;}
+    function hoverNode(event){
+      const name=event.target.closest?.('[data-node]')?.dataset.node;
+      const node=byId.get(name);
+      if(!node){hidePopup();return;}
+      const popup=q('sfo-hover');
+      if(hovered!==name){
+        hovered=name;
+        q('sfo-hover-name').textContent=node.name;
+        q('sfo-hover-role').textContent=node.role==='root'?'Feeder head':node.role;
+        q('sfo-hover-voltage').textContent=node.kv>=1?node.kv.toFixed(2)+' kV':(node.kv*1000).toFixed(0)+' V';
+        q('sfo-hover-demand').textContent=node.kw.toFixed(2)+' kW';
+        q('sfo-hover-pv').textContent=node.pv_kw.toFixed(2)+' kW / '+node.pv_kvar.toFixed(2)+' kvar';
+        q('sfo-hover-baseline').textContent=(node.vmin*100).toFixed(1)+'–'+(node.vmax*100).toFixed(1)+'% of nominal';
+        q('sfo-hover-hc').textContent=node.hc===null?'Not labeled':node.hc.toFixed(2)+' kW';
+      }
+      popup.hidden=false;
+      const gap=14,margin=12;
+      let left=event.clientX+gap,top=event.clientY+gap;
+      if(left+popup.offsetWidth>window.innerWidth-margin)left=event.clientX-popup.offsetWidth-gap;
+      if(top+popup.offsetHeight>window.innerHeight-margin)top=event.clientY-popup.offsetHeight-gap;
+      popup.style.left=Math.max(margin,Math.min(left,window.innerWidth-popup.offsetWidth-margin))+'px';
+      popup.style.top=Math.max(margin,Math.min(top,window.innerHeight-popup.offsetHeight-margin))+'px';
+    }
+    function legend(){
+      const items=mode==='role'?[['root-mark','Feeder head · '+(data.roles.root||0)],['load-mark','Customer · '+(data.roles.customer||0)],['terminal-mark','Transformer terminal · '+(data.roles['transformer terminal']||0)],['junction-mark','Other junction · '+(data.roles.junction||0)]]:[];
+      if(mode==='role')q('sfo-legend').innerHTML=items.map(([cls,label])=>`<span><i class="mark ${cls}" aria-hidden="true"></i>${label}</span>`).join('');
+      else if(mode==='voltage')q('sfo-legend').innerHTML=[['1','Primary · 12.47 kV line-to-line'],['2','Three-phase service · 480 V line-to-line'],['3','Split-phase service · 120 V per leg']].map(([s,label])=>`<span><i class="mark" style="background:var(--viz-series-${s})" aria-hidden="true"></i>${label}</span>`).join('');
+      else if(mode==='pv')q('sfo-legend').textContent='Existing PV: '+data.nodes.reduce((total,n)=>total+n.pv_systems,0)+' systems · '+data.nodes.reduce((total,n)=>total+n.pv_kw,0).toFixed(2)+' kW AC at this snapshot';
+      else q('sfo-legend').innerHTML='<span>Customer HC: pale = lower, strong = higher · '+(labeled.length?data.minHC.toFixed(2)+'–'+data.maxHC.toFixed(2)+' kW':'no labels yet')+'</span><span>Unlabeled buses shown in gray</span>';
+    }
+    function draw(){
+      hidePopup();
+      q('sfo-mode').value=mode;q('sfo-node').value=selected;legend();
+      const w=Math.max(280,root.getBoundingClientRect().width),h=Math.max(240,70+data.nodes.filter(n=>!children.get(n.name).length).length*16.4),margin=18;
+      const leafNames=[];
+      const ys=new Map();
+      function place(id){
+        const cs=children.get(id);
+        if(!cs.length){const y=38+leafNames.length*16.4;leafNames.push(id);ys.set(id,y);return y;}
+        const pos=cs.map(place);const y=(Math.min(...pos)+Math.max(...pos))/2;ys.set(id,y);return y;
+      }
+      place(source.name);
+      const xy=n=>[margin+n.depth*(w-2*margin)/Math.max(1,data.maxDepth),ys.get(n.name)];
+      const path=new Set();let cursor=selected;
+      while(cursor){path.add(cursor);cursor=byId.get(cursor).parent;}
+      let drawing=`<title>SFO feeder topology</title><desc>${data.nodes.length} buses; selected path ends at ${selected}. Squares are transformer terminals, circles are customers or other junctions, and the diamond is the feeder head.</desc>`;
+      drawing+=`<text class="text-small" x="0" y="14">Feeder head</text><text class="text-small" text-anchor="end" x="${w}" y="14">Branches → customers</text>`;
+      data.edges.forEach(e=>{
+        const [x1,y1]=xy(byId.get(e.parent)),[x2,y2]=xy(byId.get(e.child));
+        drawing+=`<path class="${path.has(e.child)?'route-edge':'edge'}" d="M${x1},${y1} H${(x1+x2)/2} V${y2} H${x2}"/>`;
+        const x=(x1+x2)/2+((x2-x1)/4),y=y2;
+        if(e.kind==='transformer')drawing+=`<rect x="${x-3}" y="${y-3}" width="6" height="6" fill="var(--viz-series-3)" data-tooltip="${escape(e.name)} · transformer"/>`;
+        if(e.kind==='switch')drawing+=`<polygon points="${x},${y-4} ${x+4},${y} ${x},${y+4} ${x-4},${y}" fill="var(--viz-series-4)" data-tooltip="Switch"/>`;
+      });
+      data.nodes.forEach(n=>{const [x,y]=xy(n);drawing+=nodeShape(n,x,y,n.role==='customer'?5:3.5,'cursor-interaction');});
+      q('sfo-tree').setAttribute('viewBox',`0 0 ${w} ${h}`);
+      q('sfo-tree').style.height=h+'px';q('sfo-tree').innerHTML=drawing;
+      const node=byId.get(selected),v=node.kv*1000;
+      q('sfo-selected-name').textContent=node.name+' · '+node.role;
+      const service=node.kv>1?'primary distribution':node.kv>.2?'480 V three-phase service':'120 V service legs';
+      q('sfo-selected-detail').textContent=`${service} · ${v.toFixed(0)} V nominal to neutral · local demand ${node.kw.toFixed(2)} kW · existing PV ${node.pv_kw.toFixed(2)} kW · baseline ${node.vmin.toFixed(3)}–${node.vmax.toFixed(3)} p.u.`+(node.hc!==null?` · HC ${node.hc.toFixed(2)} kW`:' · HC not labeled');
+      const route=[];cursor=selected;
+      while(byId.get(cursor).parent){route.unshift(childEdges.get(cursor));cursor=byId.get(cursor).parent;}
+      const transformer=[...route].reverse().find(e=>e.kind==='transformer');
+      q('sfo-customer-route').hidden=!transformer || node.role!=='customer';
+      if(transformer && node.role==='customer'){
+        const landmarks=[source,byId.get(transformer.parent),byId.get(transformer.child),node];
+        const xs=[w*.08,w*.36,w*.64,w*.92],y=49;
+        const transformerX=(xs[1]+xs[2])/2;
+        let routeSvg='<title>Source to customer, simplified</title><desc>Intermediate junctions collapsed; the center edge is a real transformer. Voltage levels change across this edge.</desc>';
+        routeSvg+=`<line x1="${xs[0]}" y1="${y}" x2="${xs[3]}" y2="${y}" stroke="var(--muted-foreground)" stroke-width="1.5"/>`;
+        routeSvg+=`<rect x="${transformerX-7}" y="${y-7}" width="14" height="14" fill="var(--viz-series-3)"/>`;
+        routeSvg+=`<text class="text-small" text-anchor="middle" x="${transformerX}" y="20">Transformer</text>`;
+        landmarks.forEach((n,i)=>{routeSvg+=nodeShape(n,xs[i],y,6);});
+        q('sfo-route').setAttribute('viewBox',`0 0 ${w} 76`);q('sfo-route').style.height='76px';q('sfo-route').innerHTML=routeSvg;
+        q('sfo-route-labels').innerHTML=landmarks.map((n,i)=>`<div>${['Feeder head','Primary terminal','Secondary terminal','Customer bus'][i]}<br><span class="tabular-nums">${n.kv>1?(n.kv*Math.sqrt(3)).toFixed(2)+' kV LL':n.kv>.2?(n.kv*1000*Math.sqrt(3)).toFixed(0)+' V LL':(n.kv*1000).toFixed(0)+' V / leg'}</span></div>`).join('');
+        const result=data.limits[selected];
+        q('sfo-limit').textContent=result?`${transformer.normal_kva.toFixed(1)} kVA normal transformer rating · HC bracket ${node.hc.toFixed(2)}–${result.upper.toFixed(2)} kW · first upper-bound violation: ${result.kind==='voltage'?'voltage limit':result.kind==='thermal'?'equipment current limit':'unknown'} · intermediate wire junctions collapsed`:'HC not labeled · intermediate wire junctions collapsed';
+      }
+    }
+    q('sfo-node').addEventListener('change',e=>{selected=e.target.value;draw();persist();});
+    q('sfo-mode').addEventListener('change',e=>{mode=e.target.value;draw();persist();});
+    q('sfo-tree').addEventListener('click',e=>{const name=e.target.dataset.node;if(byId.has(name)){selected=name;draw();persist();}});
+    for(const id of ['sfo-tree','sfo-route']){
+      q(id).addEventListener('pointermove',hoverNode);
+      q(id).addEventListener('pointerleave',hidePopup);
+    }
+    window.addEventListener('scroll',hidePopup,{passive:true});
+    window.addEventListener('keydown',e=>{if(e.key==='Escape')hidePopup();});
+    new ResizeObserver(draw).observe(root);draw();
+  })();
+  </script>
+</div>
+
+<section class="help" aria-label="How to read this graph">
+  <p><strong>Bus = electrical connection point.</strong> Customer buses connect demand; junctions connect wires. A customer bus can aggregate multiple loads.</p>
+  <p><strong>Transformers are edges.</strong> Their terminal buses are the connection points on either side. They step distribution voltage down to customer service voltage. LL means line-to-line; a split-phase service has two 120 V legs.</p>
+  <p><strong>HC = additional solar output in kW.</strong> Each label adds solar at that customer alone, with other customers at baseline. Unlabeled buses do not have zero capacity. Highlighted paths show connectivity, not power-flow direction or geographic distance.</p>
+</section>
+</main>
+</body>
+</html>

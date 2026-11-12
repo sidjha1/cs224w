@@ -1,0 +1,17 @@
+{
+  "graphs": ["../data/processed/SFO_P1U_p1uhs0_1247--p1udt942/graph.pt"],
+  "split_file": "../data/processed/SFO_P1U_p1uhs0_1247--p1udt942/splits.json",
+  "output_dir": "../runs/sweepgnn",
+  "hidden_dim": 64,
+  "dropout": 0.0,
+  "target_scale_kw": 100.0,
+  "epochs": 200,
+  "batch_size": 4,
+  "learning_rate": 0.001,
+  "weight_decay": 0.0001,
+  "gradient_clip_norm": 1.0,
+  "patience": 30,
+  "device": "auto",
+  "seed": 224,
+  "pv_request_sizes_kw": [5.0, 10.0, 20.0]
+}
